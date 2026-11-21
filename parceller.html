@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brandsbjerg Syd parceller</title>
+<style>
+  html, body { margin: 0; height: 100%; font: 14px/1.4 system-ui, sans-serif; background: #e5e5e5; }
+  body { display: flex; flex-direction: column; }
+  #kort { position: relative; flex: 1; overflow: hidden; }
+  #lag { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  #lag img { position: absolute; width: 256px; height: 256px; filter: grayscale(1) opacity(.7); }
+  #lag svg { position: absolute; left: 0; top: 0; overflow: visible; }
+  #lag text { display: none; }
+  #lag text.vis { font-weight: 600; text-anchor: middle; dominant-baseline: central; fill: #111; paint-order: stroke; stroke: rgba(255,255,255,.85); pointer-events: none; }
+  #lag path.p:hover { stroke: #000; stroke-width: 2.5; }
+  .forklaring { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; background: #fff; padding: 10px 16px; border-bottom: 1px solid #ccc; }
+  .forklaring strong { width: 100%; }
+  .forklaring div { display: flex; align-items: center; gap: 8px; }
+  .forklaring div[hidden] { display: none; }
+  .forklaring i { width: 16px; height: 16px; border: 2px solid; border-radius: 3px; flex: none; }
+  .forklaring b { font-variant-numeric: tabular-nums; }
+  .kilde { position: absolute; right: 0; bottom: 0; padding: 2px 6px; background: rgba(255,255,255,.8); font-size: 11px; }
+  .kilde a { color: inherit; }
+  #tip { position: fixed; z-index: 10; pointer-events: none; background: #fff; padding: 6px 10px; border-radius: 4px; box-shadow: 0 1px 6px rgba(0,0,0,.3); font-size: 13px; display: none; }
+  #tip b { display: block; }
+</style>
+</head>
+<body>
+<div class="forklaring">
+  <strong>Parceller i grundejerforeningen</strong> <a href="index.html" style="font-weight:normal;margin-left:12px">&larr; Stier uden foreningens ejerskab</a>
+  <div hidden><i style="border-color:#e07800"></i><span>Nævnt i vedtægternes §3.1 (<b id="nL"></b>)</span></div>
+  <div hidden><i style="border-color:#2e7d32"></i><span>Udstykket senere – foreslået medtaget (<b id="nN"></b>)</span></div>
+  <div><i style="background:#02ADD6;border-color:#02ADD6"></i><span>Sti ejet af foreningen (<b id="nP"></b>)</span></div>
+  <div><i style="background:#189972;border-color:#189972"></i><span>Foreningens grønne område</span></div>
+  <div><i style="background:rgba(2,173,214,.1);border-color:#02ADD6;border-width:3px"></i><span>Foreningens samlede område</span></div>
+</div>
+<div id="kort"><div id="lag"></div></div>
+<div id="tip"></div>
+<div class="kilde">© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-bidragydere · Parceller: Matriklen, Klimadatastyrelsen</div>
+<script src="parceller-data.js"></script>
+<script>
+(function () {
+  var stil = {
+    L: ["#f7931e", "#e07800", "", 0],
+    N: ["#7cc96b", "#2e7d32", "", 0],
+    U: ["#ffe14d", "#b59a00", "6 4"],
+    X: ["#d36bd3", "#8e248e", ""],
+    P: ["#02ADD6", "#02ADD6", ""],
+    G: ["#189972", "#189972", ""],
+    S: ["#02ADD6", "#02ADD6", "", 0]
+  };
+  var navn = { L: "Nævnt i vedtægterne", N: "Udstykket senere – foreslået medtaget", U: "Usikker – ikke medtaget", X: "Ikke medlem", P: "Sti ejet af foreningen", G: "Foreningens grønne område", S: "Sti" };
+  ["L", "N", "P"].forEach(function (k) {
+    var liste = PARCELLER.filter(function (p) { return p[1] === k; });
+    document.getElementById("n" + k).textContent = k === "P" && liste.length === 1 ? parseInt(liste[0][3][0], 10) : liste.length;
+  });
+  var kort = document.getElementById("kort"), lag = document.getElementById("lag");
+
+  function px(c, z) {
+    var s = Math.sin(c[1] * Math.PI / 180), n = 256 * Math.pow(2, z);
+    return [(c[0] + 180) / 360 * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n];
+  }
+
+  function tegn() {
+    var w = kort.clientWidth, h = kort.clientHeight, margen = 40;
+    var alle = [];
+    PARCELLER.forEach(function (p) { p[2][0].forEach(function (c) { alle.push(px(c, 0)); }); });
+    var xs = alle.map(function (p) { return p[0]; }), ys = alle.map(function (p) { return p[1]; });
+    var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs), minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+    var zoom = Math.min(19, Math.log2(Math.min((w - 2 * margen) / (maxX - minX), (h - 2 * margen) / (maxY - minY))));
+    var z = Math.min(19, Math.ceil(zoom)), skala = Math.pow(2, zoom - z), f = Math.pow(2, z);
+    var vw = w / skala, vh = h / skala;
+    var ox = (minX + maxX) / 2 * f - vw / 2, oy = (minY + maxY) / 2 * f - vh / 2;
+    var P = function (c) { var p = px(c, 0); return [p[0] * f - ox, p[1] * f - oy]; };
+    var sti = function (ring) { return ring.map(function (c, i) { var p = P(c); return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1); }).join("") + "Z"; };
+
+    var html = "";
+    for (var tx = Math.floor(ox / 256); tx * 256 < ox + vw; tx++)
+      for (var ty = Math.floor(oy / 256); ty * 256 < oy + vh; ty++)
+        html += '<img alt="" src="https://tile.openstreetmap.org/' + z + "/" + tx + "/" + ty + '.png" style="left:' + (tx * 256 - ox) + "px;top:" + (ty * 256 - oy) + 'px">';
+
+    var lw = 1 / skala, fs = Math.max(8, Math.min(13, 11 * Math.pow(2, zoom - 18))) / skala;
+    var svg = '<svg width="' + vw + '" height="' + vh + '">' +
+      '<path fill="#02ADD6" fill-opacity=".1" stroke="#02ADD6" stroke-width="' + (1.5 / skala) + '" stroke-linejoin="round" d="' + sti(OMRAADE) + '"/>';
+    var groen = "";
+    PARCELLER.forEach(function (p, i) {
+      var s = stil[p[1]];
+      if (p[1] === "G") {
+        groen += '<path class="p" data-i="' + i + '" fill="' + s[0] + '" fill-opacity=".85" stroke="none" d="' + p[2].map(sti).join("") + '"></path>';
+        return;
+      }
+      svg += '<path class="p" fill-rule="evenodd" data-i="' + i + '" fill="' + s[0] + '" fill-opacity="' + (s[3] === 0 ? 0 : 0.6) + '" stroke="' + "none" + '" stroke-width="' + (s[3] === 0 ? 1.5 * lw : lw) + '"' + (s[2] ? ' stroke-dasharray="' + s[2] + '"' : "") + ' d="' + p[2].map(sti).join("") + '"></path>';
+    });
+    svg += groen;
+    PARCELLER.forEach(function (p) {
+      var r = p[2][0].map(P), cx = 0, cy = 0;
+      r.forEach(function (q) { cx += q[0]; cy += q[1]; });
+      svg += '<text x="' + (cx / r.length).toFixed(1) + '" y="' + (cy / r.length).toFixed(1) + '" font-size="' + fs.toFixed(1) + '" stroke-width="' + (3 / skala) + '">' + p[0] + "</text>";
+    });
+    lag.style.transform = "scale(" + skala + ")";
+    lag.innerHTML = html + svg + "</svg>";
+  }
+
+  var tip = document.getElementById("tip");
+  lag.addEventListener("mousemove", function (e) {
+    var i = e.target.getAttribute && e.target.getAttribute("data-i");
+    if (i === null) { tip.style.display = "none"; return; }
+    var p = PARCELLER[i];
+    tip.innerHTML = "<b>" + p[0] + "</b>" + (p[3].length ? p[3].join("<br>") : '<span style="color:#666">' + navn[p[1]] + "</span>");
+    tip.style.display = "block";
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + "px";
+    tip.style.top = (e.clientY + 14) + "px";
+  });
+  lag.addEventListener("mouseleave", function () { tip.style.display = "none"; });
+
+  var ventende;
+  window.addEventListener("resize", function () { clearTimeout(ventende); ventende = setTimeout(tegn, 200); });
+  tegn();
+})();
+</script>
+</body>
+</html>

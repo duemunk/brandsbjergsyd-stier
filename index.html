@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stier uden foreningens ejerskab</title>
+<style>
+  html, body { margin: 0; height: 100%; font: 14px/1.4 system-ui, sans-serif; color: #222; background: #e5e5e5; }
+  body { display: flex; }
+  #kort { position: relative; flex: 1; overflow: hidden; }
+  #lag { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  #lag img { position: absolute; width: 256px; height: 256px; filter: grayscale(1) opacity(.7); }
+  #lag svg { position: absolute; left: 0; top: 0; overflow: visible; }
+  .liste { width: 340px; flex: none; overflow: auto; background: #fff; border-left: 1px solid #ccc; padding: 12px 16px; box-sizing: border-box; }
+  .liste h1 { font-size: 16px; margin: 0 0 4px; }
+  .liste p.under { margin: 0 0 12px; color: #666; font-size: 12px; }
+  .raekke { display: flex; gap: 10px; padding: 8px; border-radius: 6px; cursor: pointer; }
+  .raekke.aktiv { background: #fdecea; }
+  .raekke.valgt { background: #f3e5f5; outline: 2px solid #7b1fa2; }
+  .raekke .rel { display: none; margin-top: 4px; color: #7b1fa2; }
+  .raekke.valgt .rel { display: block; }
+  #tilbage { display: none; margin: 0 0 10px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px; background: #fff; font: inherit; cursor: pointer; }
+  #tilbage.vis { display: inline-block; }
+  #lag [data-i] { cursor: pointer; }
+  .nr { flex: none; width: 24px; height: 24px; border-radius: 50%; color: #fff; font-weight: 700; font-size: 12px; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+  .raekke b { display: block; }
+  .raekke small { display: block; color: #555; }
+  .forklaring { margin-top: 12px; border-top: 1px solid #eee; padding-top: 10px; font-size: 12px; color: #555; }
+  .forklaring div { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .forklaring i { width: 14px; height: 14px; border-radius: 3px; flex: none; box-sizing: border-box; }
+  .kilde { position: absolute; right: 0; bottom: 0; padding: 2px 6px; background: rgba(255,255,255,.8); font-size: 11px; }
+  .kilde a { color: inherit; }
+</style>
+</head>
+<body>
+<div id="kort"><div id="lag"></div>
+  <div class="kilde">&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-bidragydere · Matrikler og ejere: Matriklen, Klimadatastyrelsen</div>
+</div>
+<div class="liste">
+  <h1>Stier uden foreningens ejerskab</h1>
+  <p class="under">Tinglyst ejer ifølge tingbogen, tjekket 21. november 2026</p>
+  <p class="under"><a href="parceller.html">Se alle foreningens parceller &rarr;</a></p>
+  <button id="tilbage" type="button">&larr; Vis hele området</button>
+  <div id="raekker"></div>
+  <div class="forklaring">
+    <div><i style="background:#d32f2f"></i>Foreningens sti – anden tinglyst ejer</div>
+    <div><i style="background:#f57c00"></i>Usikker – ligger langs foreningens sti</div>
+    <div><i style="background:#02ADD6;opacity:.6"></i>Sti tinglyst på foreningen</div>
+    <div><i style="background:rgba(2,173,214,.1);border:1.5px solid #02ADD6"></i>Foreningens område</div>
+    <div><i style="background:rgba(123,31,162,.3);border:2px solid #7b1fa2"></i>Udstykket fra / samme ejendom</div>
+    <div><i style="background:rgba(123,31,162,.12);border:2px dashed #7b1fa2"></i>Sandsynligt udstykket fra samme areal</div>
+    <div style="margin-top:6px">Klik på en sti for at zoome ind.</div>
+  </div>
+</div>
+<script src="parceller-data.js"></script>
+<script src="kandidater-data.js"></script>
+<script src="relationer-data.js"></script>
+<script>
+(function () {
+  var farve = { sikker: "#d32f2f", afklares: "#f57c00" };
+  var kort = document.getElementById("kort"), lag = document.getElementById("lag"), raekker = document.getElementById("raekker");
+
+  KANDIDATER.forEach(function (k, i) {
+    var el = document.createElement("div");
+    el.className = "raekke"; el.dataset.i = i;
+    el.innerHTML = '<span class="nr" style="background:' + farve[k.status] + '">' + (i + 1) + '</span><span><b>' + k.nr + " · " + k.areal + "</b>" +
+      "<small>" + k.ejer + " (" + k.type.toLowerCase() + ", siden " + k.siden + ")</small><small>" + k.note + "</small>" +
+      '<small class="rel">' + RELATIONER[k.nr].titel + "</small></span>";
+    raekker.appendChild(el);
+  });
+
+  function px(c, z) {
+    var s = Math.sin(c[1] * Math.PI / 180), n = 256 * Math.pow(2, z);
+    return [(c[0] + 180) / 360 * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n];
+  }
+
+  var parcelRings = {};
+  PARCELLER.forEach(function (p) { parcelRings[p[0]] = p[2]; });
+  Object.keys(EKSTRA_PARCELLER).forEach(function (nr) { parcelRings[nr] = EKSTRA_PARCELLER[nr]; });
+  var valgt = null;
+
+  function relaterede(i) {
+    var r = RELATIONER[KANDIDATER[i].nr], ud = [];
+    r.sikker.forEach(function (nr) { if (parcelRings[nr]) ud.push({ nr: nr, rings: parcelRings[nr], sikker: true }); });
+    r.mulig.forEach(function (nr) { if (parcelRings[nr]) ud.push({ nr: nr, rings: parcelRings[nr], sikker: false }); });
+    return ud;
+  }
+
+  function tegn() {
+    var w = kort.clientWidth, h = kort.clientHeight, margen = valgt === null ? 40 : 70;
+    var alle = [];
+    if (valgt === null) {
+      alle = OMRAADE.map(function (c) { return px(c, 0); });
+      KANDIDATER.forEach(function (k) { k.rings[0].forEach(function (c) { alle.push(px(c, 0)); }); });
+    } else {
+      KANDIDATER[valgt].rings[0].forEach(function (c) { alle.push(px(c, 0)); });
+      relaterede(valgt).forEach(function (r) { r.rings[0].forEach(function (c) { alle.push(px(c, 0)); }); });
+    }
+    var xs = alle.map(function (p) { return p[0]; }), ys = alle.map(function (p) { return p[1]; });
+    var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs), minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+    var zoom = Math.min(19, Math.log2(Math.min((w - 2 * margen) / (maxX - minX), (h - 2 * margen) / (maxY - minY))));
+    var z = Math.ceil(zoom), skala = Math.pow(2, zoom - z), f = Math.pow(2, z);
+    var vw = w / skala, vh = h / skala;
+    var ox = (minX + maxX) / 2 * f - vw / 2, oy = (minY + maxY) / 2 * f - vh / 2;
+    var P = function (c) { var p = px(c, 0); return [p[0] * f - ox, p[1] * f - oy]; };
+    var sti = function (ring) { return ring.map(function (c, i) { var p = P(c); return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1); }).join("") + "Z"; };
+
+    var html = "";
+    for (var tx = Math.floor(ox / 256); tx * 256 < ox + vw; tx++)
+      for (var ty = Math.floor(oy / 256); ty * 256 < oy + vh; ty++)
+        html += '<img alt="" src="https://tile.openstreetmap.org/' + z + "/" + tx + "/" + ty + '.png" style="left:' + (tx * 256 - ox) + "px;top:" + (ty * 256 - oy) + 'px">';
+
+    var u = 1 / skala;
+    var svg = '<svg width="' + vw + '" height="' + vh + '">' +
+      '<path fill="#02ADD6" fill-opacity=".1" stroke="#02ADD6" stroke-width="' + 1.5 * u + '" d="' + sti(OMRAADE) + '"/>';
+    PARCELLER.forEach(function (p) {
+      if (p[1] === "P") svg += '<path fill="#02ADD6" fill-opacity=".45" fill-rule="evenodd" d="' + p[2].map(sti).join("") + '"/>';
+    });
+    if (valgt !== null) {
+      var rel = relaterede(valgt), etiketter = "";
+      rel.forEach(function (r) {
+        svg += '<path fill="#7b1fa2" fill-opacity="' + (r.sikker ? .3 : .12) + '" stroke="#7b1fa2" stroke-width="' + 2 * u + '"' +
+          (r.sikker ? "" : ' stroke-dasharray="' + 6 * u + " " + 4 * u + '"') + ' fill-rule="evenodd" d="' + r.rings.map(sti).join("") + '"/>';
+        var q = r.rings[0].map(P), cx = 0, cy = 0;
+        q.forEach(function (v) { cx += v[0]; cy += v[1]; }); cx /= q.length; cy /= q.length;
+        etiketter += '<text x="' + cx + '" y="' + cy + '" font-size="' + 12 * u + '" font-weight="700" fill="#4a148c" text-anchor="middle" dominant-baseline="central" paint-order="stroke" stroke="#fff" stroke-width="' + 3 * u + '">' + r.nr + "</text>";
+      });
+      svg += etiketter;
+    }
+    KANDIDATER.forEach(function (k, i) {
+      svg += '<path data-i="' + i + '" fill="' + farve[k.status] + '" stroke="' + farve[k.status] + '" stroke-width="' + 3 * u + '" stroke-linejoin="round" d="' + k.rings.map(sti).join("") + '"/>';
+    });
+    KANDIDATER.forEach(function (k, i) {
+      var r = k.rings[0].map(P), cx = 0, cy = 0;
+      r.forEach(function (q) { cx += q[0]; cy += q[1]; }); cx /= r.length; cy /= r.length;
+      var ax = cx + 22 * u, ay = cy - 22 * u;
+      svg += '<g data-i="' + i + '" style="cursor:default"><line x1="' + cx + '" y1="' + cy + '" x2="' + ax + '" y2="' + ay + '" stroke="#222" stroke-width="' + u + '"/>' +
+        '<circle cx="' + ax + '" cy="' + ay + '" r="' + 11 * u + '" fill="' + farve[k.status] + '" stroke="#fff" stroke-width="' + 2 * u + '"/>' +
+        '<text data-i="' + i + '" x="' + ax + '" y="' + ay + '" fill="#fff" font-weight="700" font-size="' + 12 * u + '" text-anchor="middle" dominant-baseline="central">' + (i + 1) + "</text></g>";
+    });
+    lag.style.transform = "scale(" + skala + ")";
+    lag.innerHTML = html + svg + "</svg>";
+  }
+
+  function marker(i) {
+    [].forEach.call(raekker.children, function (el) { el.classList.toggle("aktiv", el.dataset.i === String(i)); });
+  }
+  var tilbage = document.getElementById("tilbage");
+  function vaelg(i) {
+    valgt = (i === null || String(valgt) === String(i)) ? null : Number(i);
+    [].forEach.call(raekker.children, function (el) { el.classList.toggle("valgt", el.dataset.i === String(valgt)); });
+    tilbage.classList.toggle("vis", valgt !== null);
+    tegn();
+  }
+  lag.addEventListener("click", function (e) {
+    var el = e.target.closest ? e.target.closest("[data-i]") : null;
+    if (el) vaelg(el.getAttribute("data-i"));
+  });
+  raekker.addEventListener("click", function (e) { var el = e.target.closest(".raekke"); if (el) vaelg(el.dataset.i); });
+  tilbage.addEventListener("click", function () { vaelg(null); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && valgt !== null) vaelg(null); });
+  lag.addEventListener("mousemove", function (e) {
+    var el = e.target.closest ? e.target.closest("[data-i]") : null;
+    marker(el ? el.getAttribute("data-i") : null);
+  });
+  raekker.addEventListener("mouseover", function (e) { var el = e.target.closest(".raekke"); marker(el ? el.dataset.i : null); });
+
+  var ventende;
+  window.addEventListener("resize", function () { clearTimeout(ventende); ventende = setTimeout(tegn, 200); });
+  tegn();
+})();
+</script>
+</body>
+</html>
